@@ -2,3 +2,5 @@ __pycache__
 *.pkl
 deprecated
 .vscode
+*.egg-info
+*.file

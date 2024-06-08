@@ -1,9 +1,7 @@
 import argparse
-from guidance import capture, models, gen, system, user, assistant
-# from extender.grammar.factory import TermGrammarFactory
-# from llama_cpp import Llama
-# from extender.grammar.factory import Grammar
-# from grammar import top
+from pathlib import Path
+
+from guidance import capture, models, system, user, assistant
 from extender.grammar.guidance_grammar import GuidanceGrammar
 
 
@@ -62,8 +60,7 @@ grammar = (
 def main(args):
     model = models.LlamaCpp(args.model_path, n_ctx=0, seed=-1, echo=False, n_threads=8)
 
-    # top = TermGrammarFactory.from_string(grammar)
-    top = GuidanceGrammar(grammar)
+    top = GuidanceGrammar(Path(args.grammar_file).expanduser().read_text())
 
     system_prompt = (
         "You are an expert on language learning and are very attentive to the needs of your user. "
@@ -104,6 +101,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("model_path")
+    parser.add_argument("grammar_file")
     args = parser.parse_args()
 
     main(args)
