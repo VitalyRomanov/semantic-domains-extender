@@ -79,7 +79,7 @@ from extender.grammar.parser import GrammarParser
 # def pp_1__(lm, temperature=0.0):
 #     return lm + capture(with_temperature(select([adp(temperature=temperature) + np_1__(temperature=temperature)]), temperature=temperature), "PP1")
 
-@guidance(stateless=True)
+@guidance(stateless=True)  # type: ignore
 def select_with_temperature(lm, options, temperature=0.0):
     return lm + with_temperature(select(options), temperature=temperature)
 
@@ -173,15 +173,15 @@ class GuidanceGrammar:
     # def punct(lm, self, temperature=0.0):
     #     return lm + select_with_temperature(self._productions["punct"], temperature=temperature)
     
-    @guidance(stateless=True)
+    @guidance(stateless=True)  # type: ignore
     def select_terminal(lm, self, rule, temperature=0.0, add_leading_sep=True):
-        return (
-            lm + 
+        return (  # TODO select seems to be broken
+            lm +   # type: ignore
             (self.select_terminal("sep", temperature=temperature, add_leading_sep=False) if add_leading_sep else "") + 
-            select_with_temperature(self._terminals[rule], temperature=temperature)
+            select_with_temperature(self._terminals[rule], temperature=temperature)  # type: ignore  
         )
     
-    @guidance(stateless=True)
+    @guidance(stateless=True)  # type: ignore
     def combine(lm, self, grammars, temperature=0.0):
         for grammar in grammars:
             # if isinstance(grammar, str):
@@ -191,13 +191,13 @@ class GuidanceGrammar:
             lm += self.construct_recursively(grammar, temperature=temperature)
         return lm
     
-    @guidance(stateless=True)
+    @guidance(stateless=True)  # type: ignore
     def construct_recursively(lm, self, rule, temperature=0.0):
         if rule in self._terminals:
             lm += self.select_terminal(rule, temperature=temperature)
         elif rule in self._non_terminals:
             options = self._non_terminals[rule]
-            lm += select_with_temperature(
+            lm += select_with_temperature(  # type: ignore
                 [self.combine(option, temperature=temperature) for option in options], 
                 temperature=temperature
             )
@@ -317,7 +317,7 @@ class GuidanceGrammar:
     #         temperature=temperature
     #     )
     
-    @guidance(stateless=True)
+    @guidance(stateless=True)  # type: ignore
     def __call__(lm, self, temperature=0.0):
         # return lm + self.top(temperature=temperature)
         assert "TOP" in self._non_terminals
