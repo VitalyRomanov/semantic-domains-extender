@@ -4,3 +4,5 @@ deprecated
 .vscode
 *.egg-info
 *.file
+*.DS_Store
+res/*
