@@ -1,0 +1,3 @@
+python extender/scripts/extract/convert_domains_format.py res/data/en.orig.json res/data/en.json
+# python extender/scripts/extract/parse_kelly_proficiency_list.py res/levels/kelly/en_m3.csv res/levels/kelly/levels.json
+# python extender/exripts/extract/stream_open_subtitles_text.py ~/Downloads/eng.db | python extender/exripts/extract/wordcount.py res/frequencies/open_subtitle_word_count.json opensubtitles.org --min_counts 5
