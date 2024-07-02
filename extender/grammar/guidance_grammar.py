@@ -181,7 +181,7 @@ class GuidanceGrammar:
             select_with_temperature(self._terminals[rule], temperature=temperature)  # type: ignore  
         )
     
-    @guidance(stateless=True)  # type: ignore
+    @guidance()  # type: ignore
     def combine(lm, self, grammars, temperature=0.0):
         for grammar in grammars:
             # if isinstance(grammar, str):
@@ -191,7 +191,7 @@ class GuidanceGrammar:
             lm += self.construct_recursively(grammar, temperature=temperature)
         return lm
     
-    @guidance(stateless=True)  # type: ignore
+    @guidance()  # type: ignore
     def construct_recursively(lm, self, rule, temperature=0.0):
         if rule in self._terminals:
             lm += self.select_terminal(rule, temperature=temperature)
@@ -317,7 +317,7 @@ class GuidanceGrammar:
     #         temperature=temperature
     #     )
     
-    @guidance(stateless=True)  # type: ignore
+    @guidance()  # type: ignore
     def __call__(lm, self, temperature=0.0):
         # return lm + self.top(temperature=temperature)
         assert "TOP" in self._non_terminals
