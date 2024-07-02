@@ -58,7 +58,7 @@ grammar = (
 )
 
 def main(args):
-    model = models.LlamaCpp(args.model_path, n_ctx=0, seed=-1, echo=False, n_threads=8)
+    model = models.LlamaCpp(args.model_path, n_ctx=0, seed=-1, echo=False, n_threads=8, n_gpu_layers=-1)
 
     top = GuidanceGrammar(Path(args.grammar_file).expanduser().read_text())
 
