@@ -1,11 +1,13 @@
 import argparse
-from copy import copy
-from dataclasses import dataclass, field
-from typing import List, Optional, Union
+from typing import Iterable
 
-from semantic_domains.definitions import Question
-from semantic_domains.hierarchy import assemble_hierarchy, read_domains_from_json
-from guidance import models, gen
+from semantic_domains import dump_domains_to_json
+from guidance import models
+from guidance.chat import Llama3ChatTemplate, Llama2ChatTemplate
+
+from extender.data.model import Domain, Question, Word, WordUsageExample, read_domain_hierarchy, read_domains_from_json
+from extender.generation.prompting import PromptBuilder
+from extender.generation.wrappers.guidance import GuidanceGeneratorWrapper
 
 preamble = """
 You are an expert in creating language resources. You help to provide examples of word usage to the domain in question. 
@@ -20,78 +22,6 @@ words because this is important for creating a language resource. The words are 
 """
 
 EXT_VERSION = "EXTENDER_0.0.1"
-
-
-@dataclass
-class WordUsageExample:
-    text: str
-    source: str = ""
-
-
-@dataclass
-class Word:
-    text: str
-    source: str = ""
-    usage_examples: List[WordUsageExample] = field(default_factory=list)
-
-
-class PromptBuilder:
-    def __init__(self):
-        self.prompt = ""
-
-    def __add__(self, extension: str):
-        self.prompt += extension
-        return self
-
-    def estimate_tokens(self, string):
-        return len(string.split()) * 2.5
-
-    def truncate(self, max_length, split_on: str = "lines"):
-        
-        assert split_on == "lines"
-
-        num_tokens = 0
-        truncated_lines = []
-        for line in reversed(self.prompt.split("\n")):
-            line_tokens = self.estimate_tokens(line)
-            if line_tokens + num_tokens > max_length:
-                break
-
-            truncated_lines.append(line)
-            num_tokens += line_tokens
-
-        truncated_prompt = "\n".join(reversed(truncated_lines))
-        return self.__class__(truncated_prompt)
-    
-    def __repr__(self):
-        return copy(self.prompt)
-    
-    def copy(self):
-        return self.__class__() + self.prompt
-    
-
-class GeneratorWrapper:
-    def __init__(self, llm, initial_prompt: Optional[Union[str, PromptBuilder]] = None):
-        if initial_prompt is None:
-            initial_prompt = ""
-        self.llm = llm + self.prompt_as_string(initial_prompt)
-
-    def prompt_as_string(self, prompt: Union[str, PromptBuilder]):
-        if isinstance(prompt, str):
-            return prompt
-        elif isinstance(prompt, PromptBuilder):
-            return repr(prompt)
-        else:
-            raise TypeError(f"Prompt must be a string or a PromptBuilder")
-
-    def append(self, text: Union[str, PromptBuilder]):
-        self.llm += self.prompt_as_string(text)
-
-    def gen_append(self, **kwargs):
-        existing = str(self.llm)
-        self.llm += gen(**kwargs)
-        generated = str(self.llm)[len(existing):]
-        return generated
     
 
 class DomainExtender:
@@ -122,8 +52,20 @@ class DomainExtender:
     
     @classmethod
     def examples_prompt(cls, word):
+        pos = word.get_pos(pos_source)
+        level = word.get_proficiency_level(level_source)
+        if pos is not None:
+            pos_prompt = f" ({pos.tag})"
+        else:
+            pos_prompt = ""
+
+        if level is not None:
+            level_prompt = f" (language skill level {level.level})"
+        else:
+            level_prompt = ""
+
         return (
-            f"Let's consider the word or phrase `{word}`. The usage examples that demonstrate how it should be used in a sentence are:\n"
+            f"Let's consider the word or phrase `{word.text}{pos_prompt}{level_prompt}`. Please create diverse examples so that they are not very repetitive and highlight the usage of the requested word or phrase in different parts of the sentence. If it is possible make the sentences sound less like definitions and more as some sentences you would meet in th wild, when reading, for example, news, fiction literature, or in a dialogue. If a proficiency level is provided, sentences should correspond to this level, i.e. do not make complex sentences for A1 and A2 levels. The usage examples that demonstrate how it should be used in a sentence are:\n"
         )
     
     @property
@@ -137,7 +79,7 @@ class DomainExtender:
             prompt += self.question_format.format(q_num=question.num, question=question.text)
 
         next_question_num = len(domain.questions) + 1
-        generator = GeneratorWrapper(self.llm, prompt)
+        generator = GuidanceGeneratorWrapper(self.llm, prompt)
         new_questions = []
 
         for i in range(extend_by):
@@ -153,7 +95,7 @@ class DomainExtender:
 
         updated_questions = []
 
-        generator = GeneratorWrapper(self.llm, prompt)
+        generator = GuidanceGeneratorWrapper(self.llm, prompt)
 
         for question in questions:
             generator.append("\n")
@@ -178,40 +120,59 @@ class DomainExtender:
 
         return updated_questions
     
-    def extend_usage_examples(self, domain, questions, prompt, extend_by: int = 10):
+    def extend_usage_examples(self, domain: Domain, questions: Iterable[Question], prompt, extend_by: int = 10):
         prompt += self.questions_prompt(domain)
 
         updated_questions = []
 
-        generator = GeneratorWrapper(self.llm, prompt)
+        # generator = GuidanceGeneratorWrapper(self.llm, prompt)
 
         for question in questions:
-            generator.append("\n")
-            generator.append(self.question_format.format(q_num=question.num, question=question.text))
+            prompt += "\n"
+            prompt += self.question_format.format(q_num=question.num, question=question.text)
+            # generator.append("\n")
+            # generator.append(self.question_format.format(q_num=question.num, question=question.text))
             
             updated_words = []
             
             for word in question.words:
+                generator = GuidanceGeneratorWrapper(self.llm, prompt)
                 generator.append(self.examples_prompt(word))
 
                 if not isinstance(word, str):
-                    for example in word.examples:
-                        generator.append(f"- {example}\n")
+                    for example in word.usage_examples:
+                        generator.append(f"- {example.text}\n")
 
                 new_examples = []    
 
                 for i in range(extend_by):
-                    generator.append(f"- ")
-                    generated = generator.gen_append(stop=[".", "\n"], suffix=".\n", temperature=0.8)
-                    new_examples.append(WordUsageExample(generated.strip().replace("`", ""), source=EXT_VERSION))
+                    generator.append(f"-")
+                    generated = generator.gen_append(stop=[".", "!", "?", "\n"], temperature=0.8, save_stop_text=True)
+                    
+                    if len(generated) > 0 and not generated[-1] in {"!", ".", "?"}:
+                        # generator.append(".")
+                        generated += "."
+                    if not generated.endswith("\n"):
+                        generator.append("\n")
+                    
+                    generated = generated.strip().replace("`", "")
+                    while "  " in generated:
+                        generated = generated.replace("  ", " ")
+                    
+                    print(generated)
+                    
+                    new_examples.append(WordUsageExample(generated, source=EXT_VERSION))
 
-                updated_words.append(Word(text=word, usage_examples=new_examples))
+                for example in new_examples:
+                    word.add_usage_example(example)
+                # updated_words.append(Word(text=word., usage_examples=new_examples, source=EXT_VERSION))
 
             updated_questions.append(
+                # question
                 Question(
                     num=question.num,
                     text=question.text,
-                    words=updated_words
+                    words=question.words,
                 )
             )
 
@@ -236,21 +197,32 @@ class DomainExtender:
         
 
 def main(args):
+    # dh = read_domain_hierarchy(args.domains)
     domains = read_domains_from_json(args.domains)
-    dh = assemble_hierarchy(domains)
     
-    llm = models.LlamaCpp(args.model_path, n_ctx=4096) 
+    llm = models.LlamaCpp(args.model_path, n_ctx=8192, echo=False, n_gpu_layers=-1, chat_template=Llama2ChatTemplate)  # type: ignore
     
     extender = DomainExtender(llm)
+    # updated_domains = []
 
-    for domain in dh.traverse(max_depth=6):
+    # for domain in dh.traverse(max_depth=6):
+    for ind, domain in enumerate(domains):
         extender.extend(domain)
+        # updated_domains.append(domain.content)
+
+        dump_domains_to_json(domains, args.output_path)
 
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("domains", help="Path to the domains json file")
     parser.add_argument("model_path", help="")
+    parser.add_argument("pos_source", help="")
+    parser.add_argument("level_source", help="")
+    parser.add_argument("output_path", help="")
+
     
     args = parser.parse_args()
+    pos_source = args.pos_source
+    level_source = args.level_source
     main(args)

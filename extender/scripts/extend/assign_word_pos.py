@@ -1,14 +1,17 @@
 import argparse
 from ast import literal_eval
 from collections import defaultdict
+from typing import List
 
 import bm25s
 from guidance import assistant, models, gen, user, system
 from guidance.chat import Llama3ChatTemplate
 
-from extender.data.model import PartOfSpeech, Word
-from extender.data.model import read_domains_from_json
+from extender.data.model import Domain, PartOfSpeech, Word, read_domain_hierarchy
 from semantic_domains.rwc_parser import dump_domains_to_json
+
+
+EXT_VERSION = "EXTENDER_0.0.1"
 
 
 class Prompter:
@@ -161,7 +164,7 @@ class SemanticDomainsPosResponseReader(ResponseGenerator):
         assert len(wwpos) == len(question.words)
         output = []
         for word, (pos, w_text) in zip(question.words, wwpos):
-            assert word.text == w_text
+            assert word.text == w_text, f"Word `{word.text}` does not match the expected word `{w_text}`"
             output.append((Word(text=word.text, source="semantic-domains"), pos))
 
         return {
@@ -172,13 +175,13 @@ class SemanticDomainsPosResponseReader(ResponseGenerator):
 
 class POSMatcher:
     def __init__(self, possible_pos) -> None:
-        corpus_tokens = bm25s.tokenize(possible_pos)
+        corpus_tokens: List[List[str]] = bm25s.tokenize(possible_pos)  # type: ignore
         self.retriever = bm25s.BM25(corpus=possible_pos)
         self.retriever.index(corpus_tokens)
 
-    def get(self, query):
-        query_tokens = bm25s.tokenize(query)
-        docs, scores = self.retriever.retrieve(query_tokens, k=1)  # type: ignore
+    def get(self, query: str):
+        query_tokens: List[List[str]] = bm25s.tokenize([query])  # type: ignore
+        docs, scores = self.retriever.retrieve(query_tokens, k=1)
         return docs[0, 0]
 
 
@@ -192,13 +195,13 @@ class PosAssigner:
 
         response = self.response_generator.get_response(question=question, domain=domain)
         for word, (w_, pos) in zip(question.words, response["word_pos"]):
-            assert word == w_
-            word.add_pos(PartOfSpeech(pos, source=f"Extender_0.0.1"))
+            assert word.text == w_.text, f"Word {word} does not match the expected word {w_}"
+            word.add_pos(PartOfSpeech(pos, source=EXT_VERSION))
         return response
         
 
 def main(args):
-    dh = read_domains_from_json(args.domains, as_hierarchy=True)
+    dh = read_domain_hierarchy(args.domains)
 
     if args.pos_file_path is None:
         llm = models.LlamaCpp(args.model_path, n_ctx=8192, echo=False, n_gpu_layers=-1, chat_template=Llama3ChatTemplate)  # type: ignore
@@ -208,11 +211,15 @@ def main(args):
 
     assigner = PosAssigner(response_generator)
 
-    updated_domains = []
-    for domain in dh.traverse():  # type: ignore
+    updated_domains: List[Domain] = []
+    for domain in dh.traverse():
         for question in domain.questions:
-            assigner.assign_pos(question, domain=domain.content)  # type: ignore
-        updated_domains.append(domain.content)  # type: ignore
+            assigner.assign_pos(question, domain=domain.content)
+        
+        if isinstance(domain.content, Domain):
+            updated_domains.append(domain.content)
+        else:
+            raise ValueError(f"Expected Domain, got {type(domain.content).__name__}")
 
     dump_domains_to_json(updated_domains, args.output_path)
 
