@@ -14,12 +14,12 @@ def main(args):
         for level in level_dist:
             level_freq = level_dist[level]
             top_freq = domain.get_avg_frequency(args.frequencies_source, level=level, proficiency_level_source=args.levels_source)
-            domain_data = (domain.code, domain.title, level, level_freq, top_freq)
+            domain_data = (domain.code, domain.title, level, level_freq, top_freq, level_freq * top_freq)
             domains_data.append(domain_data)
 
-    domains_data.sort(key=lambda x: x[-1], reverse=True)  # by top frequency
-    domains_data.sort(key=lambda x: x[-2], reverse=True)  # by frequencies
-    domains_data.sort(key=lambda x: x[-3])  # by top level
+    domains_data.sort(key=lambda x: x[-2], reverse=True)  # by top frequency
+    domains_data.sort(key=lambda x: x[-1], reverse=True)  # by level frequencies
+    domains_data.sort(key=lambda x: x[-4])  # by top level
     
     with open(args.output_path, "w", encoding="utf-8") as f:
         for domain_data in domains_data:
